@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sentinel | Security Log Analyzer</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="{{ url_for('dashboard') }}">
+        <span class="brand-icon">✦</span>
+        <span><strong>SENTINEL</strong><small>SECURITY ANALYTICS</small></span>
+      </a>
+      <div class="nav-label">WORKSPACE</div>
+      <a class="nav-item active" href="{{ url_for('dashboard') }}"><span>▦</span> Overview</a>
+      <a class="nav-item" href="#events"><span>◷</span> Event explorer</a>
+      <a class="nav-item" href="#upload"><span>⇧</span> Analyze log file</a>
+      <div class="sidebar-bottom">
+        <div class="status-dot"></div>
+        <div><strong>Local analysis</strong><small>Files are analyzed in this app</small></div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">SECURITY CENTER / OVERVIEW</div>
+          <h1>Security dashboard</h1>
+          <p class="muted">Analyze authentication events and spot potentially suspicious activity.</p>
+        </div>
+        <div class="top-actions">
+          <span class="live-pill"><span></span> DEMO MODE</span>
+          <a class="button button-secondary" href="{{ url_for('demo') }}">Load demo data</a>
+        </div>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <section class="metric-grid">
+        <article class="metric-card">
+          <div class="metric-top"><span>Total events</span><span class="metric-icon cyan">▤</span></div>
+          <div class="metric-value">{{ report.total if report else '—' }}</div>
+          <div class="metric-foot">Log lines analyzed</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-top"><span>Failed logins</span><span class="metric-icon orange">↘</span></div>
+          <div class="metric-value">{{ report.failed if report else '—' }}</div>
+          <div class="metric-foot">Includes repeated attempts</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-top"><span>High severity</span><span class="metric-icon red">⚠</span></div>
+          <div class="metric-value">{{ report.high if report else '—' }}</div>
+          <div class="metric-foot">Needs analyst review</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-top"><span>Successful logins</span><span class="metric-icon green">✓</span></div>
+          <div class="metric-value">{{ report.successful if report else '—' }}</div>
+          <div class="metric-foot">Authentication succeeded</div>
+        </article>
+      </section>
+
+      <section class="content-grid">
+        <article class="panel chart-panel">
+          <div class="panel-heading">
+            <div><h2>Event distribution</h2><p class="muted">Count by detected event category</p></div>
+            <span class="panel-tag">ANALYTICS</span>
+          </div>
+          {% if report and report.total %}
+            <div class="chart-wrap"><canvas id="eventChart"></canvas></div>
+          {% else %}
+            <div class="empty-chart"><div class="empty-icon">⌁</div><strong>No log data yet</strong><p>Upload a file or load the demo dataset to view the chart.</p></div>
+          {% endif %}
+        </article>
+
+        <article class="panel upload-panel" id="upload">
+          <div class="panel-heading">
+            <div><h2>Analyze a log file</h2><p class="muted">Upload a local text log</p></div>
+            <span class="upload-icon">⇧</span>
+          </div>
+          <form action="{{ url_for('dashboard') }}" method="post" enctype="multipart/form-data">
+            <label class="drop-zone" for="logfile">
+              <span class="file-icon">⇧</span>
+              <strong id="file-label">Choose a log file</strong>
+              <span>Drag and drop or click to browse</span>
+              <small>LOG, TXT, CSV · MAX 2 MB</small>
+              <input id="logfile" name="logfile" type="file" accept=".log,.txt,.csv" required>
+            </label>
+            <button class="button button-primary full-width" type="submit">Analyze logs <span>→</span></button>
+          </form>
+          <div class="upload-note"><span>ⓘ</span> Keyword-based prototype. It does not monitor live network traffic.</div>
+        </article>
+      </section>
+
+      <section class="panel events-panel" id="events">
+        <div class="panel-heading events-heading">
+          <div><h2>Detected security events</h2><p class="muted">{% if filename %}Source: {{ filename }}{% else %}Upload a file or load demo data to populate this table.{% endif %}</p></div>
+          {% if report and report.total %}
+          <form action="{{ url_for('download_csv') }}" method="post">
+            <textarea name="rows" hidden>{% for item in report.events %}{{ item.log_entry }}
+{% endfor %}</textarea>
+            <button class="button button-secondary" type="submit">↓ Export CSV</button>
+          </form>
+          {% endif %}
+        </div>
+        {% if report and report.events %}
+          <div class="table-controls">
+            <input type="search" id="eventSearch" placeholder="Search logs, users, event types..." aria-label="Search events">
+            <select id="severityFilter" aria-label="Filter severity">
+              <option value="">All severities</option><option>Normal</option><option>Info</option><option>Warning</option><option>High</option>
+            </select>
+          </div>
+          <div class="table-scroll">
+            <table id="eventsTable">
+              <thead><tr><th>EVENT / LOG ENTRY</th><th>USER</th><th>EVENT TYPE</th><th>SEVERITY</th></tr></thead>
+              <tbody>
+              {% for item in report.events %}
+                <tr data-severity="{{ item.severity }}">
+                  <td class="log-cell"><span class="event-marker {{ item.severity|lower }}"></span><span>{{ item.log_entry }}</span></td>
+                  <td>{{ item.user }}</td>
+                  <td>{{ item.event }}</td>
+                  <td><span class="severity {{ item.severity|lower }}">{{ item.severity }}</span></td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="table-footer"><span>{{ report.total }} event(s) analyzed</span><span>Rule-based detection</span></div>
+        {% else %}
+          <div class="empty-table"><span>▤</span><strong>Your event records will appear here</strong><p>Try “Load demo data” to see an example analysis.</p></div>
+        {% endif %}
+      </section>
+      <footer class="footer"><span> SENTINEL · SECURITY LOG ANALYZER</span><span>Educational prototype · Not a production SIEM</span></footer>
+    </main>
+  </div>
+
+  {% if report and report.total %}
+  <script>
+    const chartLabels = {{ report.counts.keys()|list|tojson }};
+    const chartValues = {{ report.counts.values()|list|tojson }};
+    const ctx = document.getElementById('eventChart');
+    if (ctx) {
+      new Chart(ctx, {
+        type: 'bar',
+        data: { labels: chartLabels, datasets: [{
+          label: 'Events',
+          data: chartValues,
+          backgroundColor: ['#27d7cf','#f4a340','#f05d6c','#a78bfa','#5b8def','#43c99a'],
+          borderRadius: 6,
+          maxBarThickness: 44
+        }]},
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color: '#9aa9bf' }, grid: { display: false } },
+            y: { beginAtZero: true, ticks: { color: '#9aa9bf', precision: 0 }, grid: { color: 'rgba(148,163,184,.12)' } }
+          }
+        }
+      });
+    }
+
+    const search = document.getElementById('eventSearch');
+    const filter = document.getElementById('severityFilter');
+    const rows = Array.from(document.querySelectorAll('#eventsTable tbody tr'));
+    function filterRows() {
+      const term = search.value.toLowerCase();
+      const sev = filter.value;
+      rows.forEach(row => {
+        row.hidden = !row.innerText.toLowerCase().includes(term) ||
+          (sev && row.dataset.severity !== sev);
+      });
+    }
+    search?.addEventListener('input', filterRows);
+    filter?.addEventListener('change', filterRows);
+
+    const fileInput = document.getElementById('logfile');
+    fileInput?.addEventListener('change', () => {
+      document.getElementById('file-label').textContent =
+        fileInput.files.length ? fileInput.files[0].name : 'Choose a log file';
+    });
+  </script>
+  {% else %}
+  <script>
+    const fileInput = document.getElementById('logfile');
+    fileInput?.addEventListener('change', () => {
+      document.getElementById('file-label').textContent =
+        fileInput.files.length ? fileInput.files[0].name : 'Choose a log file';
+    });
+  </script>
+  {% endif %}
+</body>
+</html>
